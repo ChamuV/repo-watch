@@ -1,24 +1,12 @@
-// src/main.rs
-use octocrab::Octocrab;
+use std::{env, fs};
 
-#[tokio::main]
-async fn main() -> octocrab::Result<()> {
-    // Initialising token
-    let token = std::env::var("GITHUB_TOKEN")
-        .expect("GITHUB_TOKEN env is required");
+fn main() {
 
-    // Intialising Octocrab for toke
-    let crab = Octocrab::builder()
-        .personal_token(token)
-        .build()?;
+    let home = env::var("HOME").unwrap_or_else(|_| env::var("USERPROFILE").unwrap());
 
-    // Authorisation check
-    let me: octocrab::models::UserProfile = crab.get("/user", None::<&()>).await?;
+    let paths = fs::read_dir(home).unwrap();
 
-    let login = me.login.to_string();
-    let name = me.name.unwrap_or_else(|| "(no name)".to_string());
-    
-    // Print message for completion
-    println!("Authenticated as: {login} ({name})");
-    Ok(())
+    for path in paths {
+        println!("Name: {}", path.unwrap().path().display())
+    }
 }
