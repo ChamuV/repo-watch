@@ -17,119 +17,102 @@ fn main() {
             .into_iter()
             .filter_map(|e| e.ok())
         {
-            if entry.file_type().is_dir() {
-                let folder = entry.path();
-                let git_folder_path = folder.join(".git");
+            if !entry.file_type().is_dir() {
+                continue;
+            }
 
-                if fs::metadata(&git_folder_path).is_ok() {
-                    println!("Found Git repository: {}", folder.display());
+            let folder = entry.path();
+            let git_folder_path = folder.join(".git");
 
-                    // Check repository status
-                    let repo = Repository::open(folder)
-                        .expect("Failed to open repository");
+            if fs::metadata(&git_folder_path).is_err() {
+                continue;
+            }
 
-                    let mut status_options = StatusOptions::new();
-                    status_options.include_untracked(true);
+            println!("\nFound Git repository: {}", folder.display());
 
-                    let statuses = repo
-                        .statuses(Some(&mut status_options))
-                        .expect("Failed to get repository statuses");
-
-                    let has_untracked = statuses
-                        .iter()
-                        .any(|entry| entry.status().is_wt_new());
-
-                    let has_unstaged = statuses
-                        .iter()
-                        .any(|entry| {
-                            entry.status().is_wt_modified()
-                                || entry.status().is_wt_deleted()
-                                || entry.status().is_wt_renamed()
-                                || entry.status().is_wt_typechange()
-                        });
-
-                    if has_untracked {
-                        println!("Repository has untracked files.");
-                        println!("Untracked files:");
-                        for entry in statuses.iter().filter(|e| e.status().is_wt_new()) {
-                            if let Some(path) = entry.path() {
-                                println!(" - {}", path);
-                            }
-                        }
-                    }
-
-                    if has_unstaged {
-                        println!("Repository has unstaged changes.");
-                        println!("Unstaged changes:");
-                        for entry in statuses.iter().filter(|e| {
-                            e.status().is_wt_modified()
-                                || e.status().is_wt_deleted()
-                                || e.status().is_wt_renamed()
-                                || e.status().is_wt_typechange()
-                        }) {
-                            if let Some(path) = entry.path() {
-                                println!(" - {}", path);
-                            }
-                        }
-                    }
-
-                    if !has_unstaged && !has_untracked {
-                        println!("Repository is clean.");
-                    }
-
-                    // Check if remote exists
-                    let origin_ok = repo.find_remote("origin");
-
-                    if origin_ok.is_err() {
-                        println!("No 'origin' remote found; skipping autopush.");
-                        continue;
-                    }
-
-                    // git add -A
-                    let st = Command::new("git")
-                        .args(["-C", folder.to_str().unwrap(), "add", "-A"])
-                        .status()
-                        .expect("Failed to run git add");
-
-                    if !st.success() {
-                        println!("git add failed; skipping repo.");
-                        continue;
-                    }
-
-                    // git commit -m "Auto-save"
-                    let st = Command::new("git")
-                        .args([
-                            "-C",
-                            folder.to_str().unwrap(),
-                            "commit",
-                            "-m",
-                            "Auto-save",
-                        ])
-                        .status()
-                        .expect("Failed to run git commit");
-
-                    if st.success() {
-                        println!("Committed changes.");
-                    } else {
-                        println!(
-                            "Nothing to commit (or commit failed). Continuing to push anyway..."
-                        );
-                    }
-
-                    // git push
-                    let st = Command::new("git")
-                        .args(["-C", folder.to_str().unwrap(), "push"])
-                        .status()
-                        .expect("Failed to run git push");
-
-                    if st.success() {
-                        println!("Pushed successfully.");
-                    } else {
-                        println!(
-                            "git push failed (maybe no upstream set, auth, or behind remote)."
-                        );
-                    }
+            let repo = match Repository::open(folder) {
+                Ok(r) => r,
+                Err(_) => {
+                    println!("Failed to open repository.");
+                    continue;
                 }
+            };
+
+            let mut status_options = StatusOptions::new();
+            status_options.include_untracked(true);
+
+            let statuses = match repo.statuses(Some(&mut status_options)) {
+                Ok(s) => s,
+                Err(_) => {
+                    println!("Failed to get repository statuses.");
+                    continue;
+                }
+            };
+
+            let has_untracked = statuses.iter().any(|e| e.status().is_wt_new());
+
+            let has_unstaged = statuses.iter().any(|e| {
+                e.status().is_wt_modified()
+                    || e.status().is_wt_deleted()
+                    || e.status().is_wt_renamed()
+                    || e.status().is_wt_typechange()
+            });
+
+            if !has_untracked && !has_unstaged {
+                println!("Repository is clean.");
+                continue; // ✅ prevents wasted commit/push
+            }
+
+            // Remote check
+            if repo.find_remote("origin").is_err() {
+                println!("No 'origin' remote found; skipping autopush.");
+                continue;
+            }
+
+            // Timestamp (requires `chrono`)
+            let now = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
+            println!("Auto-push at {now}");
+
+            // git add -A
+            let st = Command::new("git")
+                .args(["-C", folder.to_str().unwrap(), "add", "-A"])
+                .status()
+                .expect("Failed to run git add");
+            if !st.success() {
+                println!("git add failed; skipping repo.");
+                continue;
+            }
+
+            // git commit -m "Auto-save <time>"
+            let msg = format!("Auto-save {now}");
+            let st = Command::new("git")
+                .args([
+                    "-C",
+                    folder.to_str().unwrap(),
+                    "commit",
+                    "-m",
+                    &msg,
+                ])
+                .status()
+                .expect("Failed to run git commit");
+
+            if st.success() {
+                println!("Committed changes.");
+            } else {
+                println!("Nothing to commit (or commit failed). Skipping push.");
+                continue; // ✅ if nothing committed, don’t push
+            }
+
+            // git push
+            let st = Command::new("git")
+                .args(["-C", folder.to_str().unwrap(), "push"])
+                .status()
+                .expect("Failed to run git push");
+
+            if st.success() {
+                println!("Pushed successfully.");
+            } else {
+                println!("git push failed (possible LFS/size limit, upstream, auth, or behind).");
             }
         }
     }
