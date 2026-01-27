@@ -1,119 +1,58 @@
-use std::{env, fs, process::Command};
-use git2::{Repository, StatusOptions};
-use walkdir::WalkDir;
+// src/main.rs
+
+use chrono::Local;
+
+mod local_state;
+
+use local_state::autopush::{autopush, AutopushOutcome, origin_url};
+use local_state::discover::discover_git_repos;
+use local_state::path_home::get_home_directory;
+use local_state::repo_status::check_repo_status;
 
 fn main() {
-    let home = env::var("HOME")
-        .or_else(|_| env::var("USERPROFILE"))
-        .expect("Could not determine home directory");
 
-    let paths = fs::read_dir(&home).expect("Failed to read home directory");
+    let home = get_home_directory();
+    let repos = discover_git_repos(&home, 3);
 
-    for path in paths {
-        let path = path.expect("Invalid directory entry").path();
+    for repo_path in repos {
+        println!("\nFound Git repository: {}", repo_path.display());
 
-        for entry in WalkDir::new(&path)
-            .max_depth(2)
-            .into_iter()
-            .filter_map(|e| e.ok())
-        {
-            if !entry.file_type().is_dir() {
+        let changes = match check_repo_status(&repo_path) {
+            Ok(v) => v,
+            Err(e) => {
+                println!("Failed to read repo status: {e}");
                 continue;
             }
+        };
 
-            let folder = entry.path();
-            let git_folder_path = folder.join(".git");
+        if changes.is_empty() {
+            println!("Repository is clean.");
+            continue;
+        }
 
-            if fs::metadata(&git_folder_path).is_err() {
-                continue;
-            }
+        println!("Changes:");
+        for (path, st) in &changes {
+            println!(" - {:?}: {}", st, path);
+        }
 
-            println!("\nFound Git repository: {}", folder.display());
-
-            let repo = match Repository::open(folder) {
-                Ok(r) => r,
-                Err(_) => {
-                    println!("Failed to open repository.");
-                    continue;
-                }
-            };
-
-            let mut status_options = StatusOptions::new();
-            status_options.include_untracked(true);
-
-            let statuses = match repo.statuses(Some(&mut status_options)) {
-                Ok(s) => s,
-                Err(_) => {
-                    println!("Failed to get repository statuses.");
-                    continue;
-                }
-            };
-
-            let has_untracked = statuses.iter().any(|e| e.status().is_wt_new());
-
-            let has_unstaged = statuses.iter().any(|e| {
-                e.status().is_wt_modified()
-                    || e.status().is_wt_deleted()
-                    || e.status().is_wt_renamed()
-                    || e.status().is_wt_typechange()
-            });
-
-            if !has_untracked && !has_unstaged {
-                println!("Repository is clean.");
-                continue; // ✅ prevents wasted commit/push
-            }
-
-            // Remote check
-            if repo.find_remote("origin").is_err() {
+        // Remote check (optional log)
+        match origin_url(&repo_path) {
+            Some(url) => println!("origin: {url}"),
+            None => {
                 println!("No 'origin' remote found; skipping autopush.");
                 continue;
             }
+        }
 
-            // Timestamp (requires `chrono`)
-            let now = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
-            println!("Auto-push at {now}");
+        let now = Local::now();
+        println!("Auto-push at {}", now.format("%Y-%m-%d %H:%M"));
 
-            // git add -A
-            let st = Command::new("git")
-                .args(["-C", folder.to_str().unwrap(), "add", "-A"])
-                .status()
-                .expect("Failed to run git add");
-            if !st.success() {
-                println!("git add failed; skipping repo.");
-                continue;
-            }
-
-            // git commit -m "Auto-save <time>"
-            let msg = format!("Auto-save {now}");
-            let st = Command::new("git")
-                .args([
-                    "-C",
-                    folder.to_str().unwrap(),
-                    "commit",
-                    "-m",
-                    &msg,
-                ])
-                .status()
-                .expect("Failed to run git commit");
-
-            if st.success() {
-                println!("Committed changes.");
-            } else {
-                println!("Nothing to commit (or commit failed). Skipping push.");
-                continue; // ✅ if nothing committed, don’t push
-            }
-
-            // git push
-            let st = Command::new("git")
-                .args(["-C", folder.to_str().unwrap(), "push"])
-                .status()
-                .expect("Failed to run git push");
-
-            if st.success() {
-                println!("Pushed successfully.");
-            } else {
-                println!("git push failed (possible LFS/size limit, upstream, auth, or behind).");
-            }
+        match autopush(&repo_path, now) {
+            AutopushOutcome::CommittedAndPushed => println!("Committed + pushed."),
+            AutopushOutcome::PushFailed => println!("Push failed (auth/upstream/LFS/behind?)."),
+            AutopushOutcome::CommitFailed => println!("Commit failed (nothing staged or hooks)."),
+            AutopushOutcome::AddFailed => println!("git add failed."),
+            AutopushOutcome::SkippedNoOrigin => println!("No origin remote; skipped.")
         }
     }
 }
