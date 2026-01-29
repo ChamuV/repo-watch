@@ -8,9 +8,28 @@ pub struct ChangeSummary {
     pub files_changed: usize,
     pub insertions: usize,
     pub deletions: usize,
+    pub untracked: usize,
+}
+
+fn count_untracked(repo_path: &Path) -> Result<usize> {
+    let output = Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(repo_path)
+        .output()?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(anyhow!("git status --porcelain failed: {stderr}"));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Ok(stdout.lines().filter(|l| l.starts_with("?? ")).count())
 }
 
 pub fn get_diff_stats(repo_path: &Path) -> Result<ChangeSummary> {
+    // Option B: untracked is handled separately from diff shortstat
+    let untracked = count_untracked(repo_path)?;
+
     // `git diff --shortstat` reports working-tree changes (unstaged + staged vs HEAD)
     let output = Command::new("git")
         .args(["diff", "--shortstat"])
@@ -30,6 +49,7 @@ pub fn get_diff_stats(repo_path: &Path) -> Result<ChangeSummary> {
             files_changed: 0,
             insertions: 0,
             deletions: 0,
+            untracked,
         });
     }
 
@@ -56,5 +76,6 @@ pub fn get_diff_stats(repo_path: &Path) -> Result<ChangeSummary> {
         files_changed,
         insertions,
         deletions,
+        untracked,
     })
 }

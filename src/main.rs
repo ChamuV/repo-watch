@@ -9,15 +9,21 @@ use local_state::discover::discover_git_repos;
 use local_state::path_home::get_home_directory;
 use local_state::policy::{make_commit_message, should_autopush, MIN_LINE_CHANGES};
 use local_state::repo_status::check_repo_status;
+use local_state::skip_paths::should_skip_path;
 
 fn main() {
     let home = get_home_directory();
-    let repos = discover_git_repos(&home, 3);
+
+    // Discover and filter repos (skip ~/.cache, node_modules, .venv, etc.)
+    let repos = discover_git_repos(&home, 3)
+        .into_iter()
+        .filter(|p| !should_skip_path(p))
+        .collect::<Vec<_>>();
 
     for repo_path in repos {
         println!("\nFound Git repository: {}", repo_path.display());
 
-        // Status 
+        // Status
         let changes = match check_repo_status(&repo_path) {
             Ok(v) => v,
             Err(e) => {
@@ -54,14 +60,18 @@ fn main() {
         };
 
         println!(
-            "Diff stats: {} files, +{}/-{}",
-            stats.files_changed, stats.insertions, stats.deletions
+            "Diff stats: {} files, +{}/-{}, untracked={}",
+            stats.files_changed, stats.insertions, stats.deletions, stats.untracked
         );
 
         if !should_autopush(&stats) {
             println!(
-                "Skipping (below threshold {} lines): {} files, +{}/-{}",
-                MIN_LINE_CHANGES, stats.files_changed, stats.insertions, stats.deletions
+                "Skipping (below threshold {} lines): {} files, +{}/-{}, untracked={}",
+                MIN_LINE_CHANGES,
+                stats.files_changed,
+                stats.insertions,
+                stats.deletions,
+                stats.untracked
             );
             continue;
         }

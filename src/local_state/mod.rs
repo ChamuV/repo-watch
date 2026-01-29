@@ -5,3 +5,4 @@ pub mod discover;
 pub mod path_home;
 pub mod policy;
 pub mod repo_status;
+pub mod skip_paths;
