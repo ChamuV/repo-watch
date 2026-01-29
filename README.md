@@ -8,14 +8,14 @@ This is designed to be run on a schedule (cron/launchd) as a lightweight “back
 
 For each discovered Git repo:
 
-- checks working tree status
-- prints changed files
-- if the repo has an `origin` remote, runs:
+- computes a diff summary (`files changed`, `insertions`, `deletions`)
+- skips autopush unless the change threshold is met (default: 20 total line changes)
+- if the repo has an `origin` remote and the threshold is met, runs:
   - `git add -A`
-  - `git commit -m "autopush: YYYY-MM-DD HH:MM"`
+  - `git commit -m "autopush: <files> files, +<ins>/-<del> (YYYY-MM-DD HH:MM)"`
   - `git push origin`
 
-Repos with no changes are skipped.
+Repos with no changes or changes below the threshold are skipped.
 
 ## Install
 
@@ -60,6 +60,7 @@ crontab -l
 - This tool cannot push repos without an origin remote.
 - Authentication is handled by Git (SSH keys / credential helper). This tool does not manage auth.
 - If a push fails due to being behind remote, it will report the failure (current behavior: do not pull/rebase automatically).
+- Default threshold is 20 total line changes (`insertions + deletions`) to avoid commit spam.
 
 ## License
 
