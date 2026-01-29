@@ -2,9 +2,6 @@
 use std::path::Path;
 use std::process::Command;
 
-use chrono::{DateTime, Local};
-use git2::Repository;
-
 #[derive(Debug, Clone, Copy)]
 pub enum AutopushOutcome {
     SkippedNoOrigin,
@@ -15,50 +12,62 @@ pub enum AutopushOutcome {
 }
 
 pub fn origin_url(repo_path: &Path) -> Option<String> {
-    let repo = Repository::open(repo_path).ok()?;
-    let remote = repo.find_remote("origin").ok()?;
-    remote.url().map(|s| s.to_string())
+    let out = Command::new("git")
+        .args(["remote", "get-url", "origin"])
+        .current_dir(repo_path)
+        .output()
+        .ok()?;
+
+    if !out.status.success() {
+        return None;
+    }
+
+    let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if s.is_empty() {
+        None
+    } else {
+        Some(s)
+    }
 }
 
-pub fn has_origin_remote(repo_path: &Path) -> bool {
-    origin_url(repo_path).is_some()
-}
-
-pub fn autopush(repo_path: &Path, when: DateTime<Local>) -> AutopushOutcome {
-    // If no origin, skip.
-    if !has_origin_remote(repo_path) {
+pub fn autopush(repo_path: &Path, commit_msg: &str) -> AutopushOutcome {
+    if origin_url(repo_path).is_none() {
         return AutopushOutcome::SkippedNoOrigin;
     }
 
-    let repo_str = match repo_path.to_str() {
-        Some(s) => s,
-        None => return AutopushOutcome::AddFailed, // rare non-UTF8 path
-    };
-
     // git add -A
-    let st = Command::new("git")
-        .args(["-C", repo_str, "add", "-A"])
+    let add = Command::new("git")
+        .args(["add", "-A"])
+        .current_dir(repo_path)
         .status();
-    if st.map(|s| !s.success()).unwrap_or(true) {
+
+    if add.is_err() || !add.unwrap().success() {
         return AutopushOutcome::AddFailed;
     }
 
-    // git commit -m "Auto-save <time>"
-    let msg = format!("Auto-save {}", when.format("%Y-%m-%d %H:%M"));
-    let st = Command::new("git")
-        .args(["-C", repo_str, "commit", "-m", &msg])
-        .status();
+    // git commit -m "..."
+    let commit = Command::new("git")
+        .args(["commit", "-m", commit_msg])
+        .current_dir(repo_path)
+        .output();
 
-    // commit can fail if nothing to commit; in that case, skip push
-    if st.map(|s| !s.success()).unwrap_or(true) {
+    let commit = match commit {
+        Ok(v) => v,
+        Err(_) => return AutopushOutcome::CommitFailed,
+    };
+
+    if !commit.status.success() {
+        // If hooks fail or "nothing to commit", treat as CommitFailed
         return AutopushOutcome::CommitFailed;
     }
 
-    // git push
-    let st = Command::new("git")
-        .args(["-C", repo_str, "push"])
+    // git push origin
+    let push = Command::new("git")
+        .args(["push", "origin"])
+        .current_dir(repo_path)
         .status();
-    if st.map(|s| !s.success()).unwrap_or(true) {
+
+    if push.is_err() || !push.unwrap().success() {
         return AutopushOutcome::PushFailed;
     }
 
