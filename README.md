@@ -2,7 +2,9 @@
 
 A small local utility that scans your machine for Git repositories and automatically commits + pushes any changes to `origin`.
 
-This is designed to be run on a schedule (cron/launchd) as a lightweight “backup my work” tool.
+It is intended to be run on a schedule (cron or launchd) as a lightweight “backup my work” tool.
+
+By default, repositories are discovered by recursively scanning your home directory.
 
 ## What it does
 
@@ -17,32 +19,49 @@ For each discovered Git repo:
 
 Repos with no changes or changes below the threshold are skipped.
 
+## Requirements
+
+- Rust toolchain (cargo)
+
+If you don’t have Rust installed, install it via:
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+Then restart your terminal or run:
+```bash
+source "$HOME/.cargo/env"
+```
+
+Then proceed with the installation steps below.
+
 ## Install
 
 ```bash
-git clone <this-repo>
+git clone https://github.com/ChamuV/repo-watch.git
 cd repo-watch
 cargo build --release
 ```
 
-Binary will be at
+Binary will be at:
 ```bash
 ./target/release/repo-watch
 ```
 
-Run once
+Run once:
 ```bash
 ./target/release/repo-watch
 ```
 
-Run via the bundled script
+Run via the bundled script:
 ```bash
 ./scripts/autopush.sh
 ```
 
 It will:
 - build the binary if needed
-- run repo-watch
+- run `repo-watch`
 
 ## Scheduling (cron)
 
