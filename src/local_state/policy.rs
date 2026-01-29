@@ -12,7 +12,7 @@ pub fn should_autopush(stats: &ChangeSummary) -> bool {
 
 pub fn make_commit_message(stats: &ChangeSummary, now: DateTime<Local>) -> String {
     format!(
-        "autopush: {} files, +{}/-{} ({})",
+        "Autosave: {} files, +{}/-{} ({})",
         stats.files_changed,
         stats.insertions,
         stats.deletions,

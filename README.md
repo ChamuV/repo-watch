@@ -12,7 +12,7 @@ For each discovered Git repo:
 - skips autopush unless the change threshold is met (default: 20 total line changes)
 - if the repo has an `origin` remote and the threshold is met, runs:
   - `git add -A`
-  - `git commit -m "autopush: <files> files, +<ins>/-<del> (YYYY-MM-DD HH:MM)"`
+  - `git commit -m "Autosave: <files> files, +<ins>/-<del> (YYYY-MM-DD HH:MM)"`
   - `git push origin`
 
 Repos with no changes or changes below the threshold are skipped.
